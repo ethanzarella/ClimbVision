@@ -1,0 +1,26 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+html,body{margin:0;background:transparent;color:#aeb8c4;font:13px system-ui,sans-serif}canvas{display:block;width:100%;height:auto;border-radius:9px;touch-action:none;cursor:crosshair}#hint{padding:7px 2px;font-size:12px}
+</style></head><body><canvas id="canvas"></canvas><div id="hint">Drag from one corner of a hold to the opposite corner. Switch to Remove mode to click an existing box.</div><script>
+(()=>{'use strict';
+const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d'),hint=document.getElementById('hint');
+const send=(type,other={})=>parent.postMessage({isStreamlitMessage:true,type,...other},'*');
+let img=new Image(),src='',holds=[],mode='add',ow=1,oh=1,start=null,curr=null;
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+function height(){send('streamlit:setFrameHeight',{height:Math.ceil(canvas.getBoundingClientRect().height+hint.getBoundingClientRect().height+10)})}
+function point(e){const r=canvas.getBoundingClientRect();return [clamp((e.clientX-r.left)/r.width,0,1),clamp((e.clientY-r.top)/r.height,0,1)]}
+function paint(){if(!img.naturalWidth)return;const w=canvas.width,h=canvas.height;ctx.clearRect(0,0,w,h);ctx.drawImage(img,0,0,w,h);
+ ctx.lineWidth=Math.max(2,w/470);ctx.font=`bold ${Math.max(12,w/65)}px sans-serif`;
+ holds.forEach((b,i)=>{const x=b.x/ow*w,y=b.y/oh*h,bw=b.w/ow*w,bh=b.h/oh*h;ctx.fillStyle='rgba(42,222,124,.10)';ctx.fillRect(x,y,bw,bh);ctx.strokeStyle='#28ed89';ctx.strokeRect(x,y,bw,bh);ctx.fillStyle='#28ed89';ctx.fillText(b.hold_id||`H${String(i+1).padStart(2,'0')}`,x+2,Math.max(15,y-5));});
+ if(start&&curr&&mode==='add'){const l=Math.min(start[0],curr[0])*w,t=Math.min(start[1],curr[1])*h,bw=Math.abs(curr[0]-start[0])*w,bh=Math.abs(curr[1]-start[1])*h;ctx.fillStyle='rgba(0,200,255,.14)';ctx.fillRect(l,t,bw,bh);ctx.strokeStyle='#00c8ff';ctx.strokeRect(l,t,bw,bh)} }
+canvas.addEventListener('pointerdown',e=>{if(!img.naturalWidth)return;e.preventDefault();canvas.setPointerCapture(e.pointerId);start=point(e);curr=start;paint()});
+canvas.addEventListener('pointermove',e=>{if(!start)return;e.preventDefault();curr=point(e);paint()});
+canvas.addEventListener('pointerup',e=>{if(!start)return;e.preventDefault();curr=point(e);let data=null;
+ if(mode==='remove'){data={action:'remove',x:Math.min(ow-1,Math.floor(curr[0]*ow)),y:Math.min(oh-1,Math.floor(curr[1]*oh))}}
+ else {const x=Math.floor(Math.min(start[0],curr[0])*ow),y=Math.floor(Math.min(start[1],curr[1])*oh),r=Math.min(ow,Math.ceil(Math.max(start[0],curr[0])*ow)),b=Math.min(oh,Math.ceil(Math.max(start[1],curr[1])*oh));if(r-x>=4&&b-y>=4){data={action:'add',box:{x,y,w:r-x,h:b-y}}}}
+ start=null;curr=null;paint();if(data)send('streamlit:setComponentValue',{value:data});});
+canvas.addEventListener('pointercancel',()=>{start=null;curr=null;paint()});
+window.addEventListener('message',e=>{if(e.data?.type!=='streamlit:render')return;const a=e.data.args||{};holds=Array.isArray(a.holds)?a.holds:[];mode=a.mode==='remove'?'remove':'add';ow=Number(a.originalWidth)||1;oh=Number(a.originalHeight)||1;hint.textContent=mode==='remove'?'Click an existing green box to remove it.':'Drag a tight rectangle around each route hold. Minimum rectangle: 4 source pixels.';
+ if(a.image&&src!==a.image){src=a.image;img.onload=()=>{canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;paint();height()};img.src=src}else{paint();height()}});
+new ResizeObserver(()=>{paint();height()}).observe(canvas);send('streamlit:componentReady',{apiVersion:1});height();
+})();
+</script></body></html>

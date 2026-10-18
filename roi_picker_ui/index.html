@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>html,body{margin:0;background:transparent;color:#d1d5db;font:13px system-ui,sans-serif}#canvas{display:block;width:100%;height:auto;border-radius:9px;touch-action:none;cursor:crosshair}#hint{padding:7px 2px 3px;font-size:12px;color:#9299a6} </style>
+</head><body><canvas id="canvas"></canvas><div id="hint">Drag inside the blue rectangle to move it. Drag its corners to resize. Drag outside to draw a new rectangle.</div>
+<script>
+(() => {
+'use strict';
+const canvas=document.querySelector('#canvas'), ctx=canvas.getContext('2d');
+let img=new Image(), rect=[.125,.0125,.875,.7625], mode=null, start=null, initial=null;
+let renderedImage='', initialized=false;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const send=(type,additional={})=>parent.postMessage({isStreamlitMessage:true,type,...additional},'*');
+const height=()=>send('streamlit:setFrameHeight',{height:Math.ceil(canvas.getBoundingClientRect().height+document.querySelector('#hint').getBoundingClientRect().height+8)});
+const color='#00c8ff';
+function paint(){if(!img.complete || !img.naturalWidth)return;
+  const w=canvas.width,h=canvas.height;
+  ctx.clearRect(0,0,w,h);ctx.drawImage(img,0,0,w,h);
+  const [l,t,r,b]=rect,x=l*w,y=t*h,rw=(r-l)*w,rh=(b-t)*h;
+  ctx.fillStyle='rgba(0,0,0,.32)';ctx.fillRect(0,0,w,y);ctx.fillRect(0,y,x,rh);ctx.fillRect(r*w,y,w-r*w,rh);ctx.fillRect(0,b*h,w,h-b*h);
+  ctx.strokeStyle=color;ctx.lineWidth=Math.max(2,w/320);ctx.strokeRect(x,y,rw,rh);
+  ctx.fillStyle='#fff';ctx.strokeStyle='#0084ae';ctx.lineWidth=2;
+  for (const [px,py] of [[x,y],[r*w,y],[x,b*h],[r*w,b*h]]) {ctx.fillRect(px-6,py-6,12,12);ctx.strokeRect(px-6,py-6,12,12)}
+}
+function coords(e){const bounds=canvas.getBoundingClientRect();return [clamp((e.clientX-bounds.left)/bounds.width,0,1),clamp((e.clientY-bounds.top)/bounds.height,0,1)]}
+function getMode(pos){const [x,y]=pos,[l,t,r,b]=rect;let near=[];
+  for(const [name,cx,cy] of [['tl',l,t],['tr',r,t],['bl',l,b],['br',r,b]]){const d=Math.hypot((x-cx)*canvas.clientWidth,(y-cy)*canvas.clientHeight);if(d<24)near.push([name,d])}
+  if(near.length){near.sort((a,b)=>a[1]-b[1]);return near[0][0]}
+  return x>=l&&x<=r&&y>=t&&y<=b?'move':'draw';
+}
+canvas.addEventListener('pointerdown',e=>{if(!img.naturalWidth)return;e.preventDefault();canvas.setPointerCapture(e.pointerId);start=coords(e);initial=rect.slice();mode=getMode(start)});
+canvas.addEventListener('pointermove',e=>{const pos=coords(e);if(!mode){const m=getMode(pos);canvas.style.cursor=m==='move'?'move':m==='draw'?'crosshair':m==='tl'||m==='br'?'nwse-resize':'nesw-resize';return}
+  e.preventDefault();const [x,y]=pos,[l,t,r,b]=initial,[sx,sy]=start;
+  if(mode==='move'){const dx=clamp(x-sx,-l,1-r),dy=clamp(y-sy,-t,1-b);rect=[l+dx,t+dy,r+dx,b+dy]}
+  else if(mode==='draw'){rect=[Math.min(sx,x),Math.min(sy,y),Math.max(sx,x),Math.max(sy,y)]}
+  else {const left=mode.includes('l'),top=mode.includes('t');rect=[left?clamp(x,0,r-.06):l,top?clamp(y,0,b-.06):t,left?r:clamp(x,l+.06,1),top?b:clamp(y,t+.06,1)]}
+  paint();
+});
+function finish(){if(!mode)return;mode=null;start=null;
+  if(rect[2]-rect[0]<.06||rect[3]-rect[1]<.06)rect=initial;
+  rect=rect.map(v=>Math.round(v*10000)/10000);paint();send('streamlit:setComponentValue',{value:rect});
+}
+canvas.addEventListener('pointerup',finish);canvas.addEventListener('pointercancel',finish);
+window.addEventListener('message',e=>{if(!e.data||e.data.type!=='streamlit:render')return;
+  const args=e.data.args||{};
+  if(!initialized && Array.isArray(args.region) && args.region.length===4){rect=args.region.slice();initialized=true}
+  if(args.image && args.image!==renderedImage){renderedImage=args.image;img.onload=()=>{canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;paint();height()};img.src=args.image}
+  else{paint();height()}
+});
+new ResizeObserver(()=>{paint();height()}).observe(canvas);
+send('streamlit:componentReady',{apiVersion:1});height();
+})();
+</script></body></html>
